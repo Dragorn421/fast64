@@ -7,7 +7,7 @@ from ast import parse, Expression, Num, UnaryOp, USub, Invert, BinOp
 from mathutils import Vector
 from bpy.types import Object
 from bpy.utils import register_class, unregister_class
-from typing import Callable
+from typing import Callable, TYPE_CHECKING
 from .oot_constants import ootSceneIDToName
 
 from ..utility import (
@@ -23,6 +23,9 @@ from ..utility import (
     hexOrDecInt,
     binOps,
 )
+
+if TYPE_CHECKING:
+    from . import OOT_Properties
 
 
 def isPathObject(obj: bpy.types.Object) -> bool:
@@ -246,10 +249,10 @@ class OOTObjectCategorizer:
 
 
 # This also sets all origins relative to the scene object.
-def ootDuplicateHierarchy(obj, ignoreAttr, includeEmpties, objectCategorizer):
+def ootDuplicateHierarchy(obj, ignoreAttr, includeEmpties, objectCategorizer, includeLights=False):
     # Duplicate objects to apply scale / modifiers / linked data
     bpy.ops.object.select_all(action="DESELECT")
-    ootSelectMeshChildrenOnly(obj, includeEmpties)
+    ootSelectMeshChildrenOnly(obj, includeEmpties, includeLights)
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.duplicate()
@@ -331,14 +334,14 @@ def ootDuplicateHierarchy(obj, ignoreAttr, includeEmpties, objectCategorizer):
         raise Exception(str(e))
 
 
-def ootSelectMeshChildrenOnly(obj, includeEmpties):
+def ootSelectMeshChildrenOnly(obj, includeEmpties, includeLights=False):
     isMesh = obj.type == "MESH"
     isEmpty = (obj.type == "EMPTY" or obj.type == "CAMERA" or obj.type == "CURVE") and includeEmpties
-    if isMesh or isEmpty:
+    if isMesh or isEmpty or (includeLights and obj.type == "LIGHT"):
         obj.select_set(True)
         obj.original_name = obj.name
     for child in obj.children:
-        ootSelectMeshChildrenOnly(child, includeEmpties)
+        ootSelectMeshChildrenOnly(child, includeEmpties, includeLights)
 
 
 def ootCleanupScene(originalSceneObj, allObjs):
@@ -939,3 +942,8 @@ def getNewPath(type: str, isClosedShape: bool):
     bpy.context.view_layer.active_layer_collection.collection.objects.link(newPath)
 
     return newPath
+
+
+def is_hackPL_enabled():
+    oot: "OOT_Properties" = bpy.context.scene.fast64.oot
+    return oot.is_hackPL_enabled

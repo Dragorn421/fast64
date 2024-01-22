@@ -9,10 +9,20 @@ def getEchoSettingsCmd(outRoom: OOTRoom):
 def getRoomBehaviourCmd(outRoom: OOTRoom):
     showInvisibleActors = "true" if outRoom.showInvisibleActors else "false"
     disableWarpSongs = "true" if outRoom.disableWarpSongs else "false"
+    if outRoom.hackPL_usePointLights is None:
+        hackPL_usePointLights = None
+    else:
+        hackPL_usePointLights = "true" if outRoom.hackPL_usePointLights else "false"
+
+    sceneCmdName = "SCENE_CMD_ROOM_BEHAVIOR"
+
+    if hackPL_usePointLights is not None:
+        sceneCmdName = "SCENE_CMD_ROOM_BEHAVIOR_PL"
 
     return (
-        (indent + "SCENE_CMD_ROOM_BEHAVIOR(")
+        (indent + sceneCmdName + "(")
         + ", ".join([outRoom.roomBehaviour, outRoom.linkIdleMode, showInvisibleActors, disableWarpSongs])
+        + ("" if hackPL_usePointLights is None else f", {hackPL_usePointLights}")
         + ")"
     )
 
@@ -45,6 +55,12 @@ def getObjectListCmd(outRoom: OOTRoom, headerIndex: int):
     ) + f"{outRoom.getObjectLengthDefineName(headerIndex)}, {outRoom.objectListName(headerIndex)}),\n"
 
 
+def getLightInfoListCmd(outRoom: OOTRoom, headerIndex: int):
+    return (
+        indent + "SCENE_CMD_LIGHT_LIST("
+    ) + f"{outRoom.getLightInfoListLengthDefineName(headerIndex)}, {outRoom.lightInfoListName(headerIndex)}),\n"
+
+
 def getActorListCmd(outRoom: OOTRoom, headerIndex: int):
     return (
         indent + "SCENE_CMD_ACTOR_LIST("
@@ -67,6 +83,7 @@ def getRoomCommandList(outRoom: OOTRoom, headerIndex: int):
         (outRoom.getAltHeaderListCmd(outRoom.alternateHeadersName()) if outRoom.hasAlternateHeaders() else "")
         + (",\n".join(getCmd(outRoom) for getCmd in getCmdFuncList) + ",\n")
         + (getWindSettingsCmd(outRoom) if outRoom.setWind else "")
+        + (getLightInfoListCmd(outRoom, headerIndex) if len(outRoom.lightInfoList) > 0 else "")
         + (getObjectListCmd(outRoom, headerIndex) if len(outRoom.objectIDList) > 0 else "")
         + (getActorListCmd(outRoom, headerIndex) if len(outRoom.actorList) > 0 else "")
         + outRoom.getEndCmd()

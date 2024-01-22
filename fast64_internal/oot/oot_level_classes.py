@@ -1,6 +1,8 @@
 import bpy
 import os
 import shutil
+import dataclasses
+import enum
 
 from typing import Optional
 from bpy.types import Object
@@ -82,8 +84,8 @@ class OOTScene(OOTCommonCommands):
         self.name = toAlnum(name)
         self.write_dummy_room_list = False
         self.rooms = {}
-        self.transitionActorList = set()
-        self.entranceList = set()
+        self.transitionActorList = []
+        self.entranceList = []
         self.startPositions = {}
         self.lights = []
         self.model = model
@@ -111,7 +113,7 @@ class OOTScene(OOTCommonCommands):
         self.cutsceneHeaders: list["OOTScene"] = []
 
         self.exitList = []
-        self.pathList = set()
+        self.pathList = []
         self.cameraList = []
 
         self.writeCutscene = False
@@ -128,7 +130,7 @@ class OOTScene(OOTCommonCommands):
         scene.rooms = self.rooms
         scene.collision = self.collision
         scene.exitList = []
-        scene.pathList = set()
+        scene.pathList = []
         scene.cameraList = self.cameraList
         return scene
 
@@ -370,11 +372,37 @@ class OOTRoomMeshGroup:
         return self.roomName + "_entry_" + str(self.entryIndex)
 
 
+class LightInfoTypeEnum(enum.Enum):
+    LIGHT_POINT_NOGLOW = 0
+    LIGHT_DIRECTIONAL = 1
+    LIGHT_POINT_GLOW = 2
+
+
+class LightParamsUnion:
+    pass
+
+
+@dataclasses.dataclass
+class LightParamsPointStruct:
+    x: int
+    y: int
+    z: int
+    color: tuple[int, int, int]
+    # drawGlow: bool  # used at run time for whether the glow is actually drawn?
+    radius: int
+
+
+@dataclasses.dataclass
+class LightInfoStruct:
+    type: LightInfoTypeEnum
+    params: LightParamsUnion
+
+
 class OOTRoom(OOTCommonCommands):
     def __init__(self, index, name, model, roomShape):
         self.ownerName = toAlnum(name)
         self.index = index
-        self.actorList = set()
+        self.actorList = []
         self.mesh = OOTRoomMesh(self.roomName(), roomShape, model)
 
         # Room behaviour
@@ -385,6 +413,8 @@ class OOTRoom(OOTCommonCommands):
 
         self.customBehaviourX = None
         self.customBehaviourY = None
+
+        self.hackPL_usePointLights = None
 
         # Wind
         self.setWind = False
@@ -404,10 +434,11 @@ class OOTRoom(OOTCommonCommands):
         self.echo = 0x00
 
         self.objectIDList = []
+        self.lightInfoList: list[LightInfoStruct] = []
 
-        self.childNightHeader = None
-        self.adultDayHeader = None
-        self.adultNightHeader = None
+        self.childNightHeader: Optional[OOTRoom] = None
+        self.adultDayHeader: Optional[OOTRoom] = None
+        self.adultNightHeader: Optional[OOTRoom] = None
         self.cutsceneHeaders = []
 
         self.appendNullEntrance = False
@@ -422,6 +453,9 @@ class OOTRoom(OOTCommonCommands):
 
     def objectListName(self, headerIndex):
         return self.roomName() + "_header" + format(headerIndex, "02") + "_objectList"
+
+    def lightInfoListName(self, headerIndex):
+        return self.roomName() + "_header" + format(headerIndex, "02") + "_lightInfoList"
 
     def actorListName(self, headerIndex):
         return self.roomName() + "_header" + format(headerIndex, "02") + "_actorList"
@@ -440,6 +474,9 @@ class OOTRoom(OOTCommonCommands):
     def getObjectLengthDefineName(self, headerIndex: int):
         return f"LENGTH_{self.objectListName(headerIndex).upper()}"
 
+    def getLightInfoListLengthDefineName(self, headerIndex: int):
+        return f"LENGTH_{self.lightInfoListName(headerIndex).upper()}"
+
     def getActorLengthDefineName(self, headerIndex: int):
         return f"LENGTH_{self.actorListName(headerIndex).upper()}"
 
@@ -450,32 +487,32 @@ def addActor(owner, actor, actorProp, propName, actorObjName):
         sceneSetup.sceneSetupPreset == "All Scene Setups"
         or sceneSetup.sceneSetupPreset == "All Non-Cutscene Scene Setups"
     ):
-        getattr(owner, propName).add(actor)
+        getattr(owner, propName).append(actor)
         if owner.childNightHeader is not None:
-            getattr(owner.childNightHeader, propName).add(actor)
+            getattr(owner.childNightHeader, propName).append(actor)
         if owner.adultDayHeader is not None:
-            getattr(owner.adultDayHeader, propName).add(actor)
+            getattr(owner.adultDayHeader, propName).append(actor)
         if owner.adultNightHeader is not None:
-            getattr(owner.adultNightHeader, propName).add(actor)
+            getattr(owner.adultNightHeader, propName).append(actor)
         if sceneSetup.sceneSetupPreset == "All Scene Setups":
             for cutsceneHeader in owner.cutsceneHeaders:
-                getattr(cutsceneHeader, propName).add(actor)
+                getattr(cutsceneHeader, propName).append(actor)
     elif sceneSetup.sceneSetupPreset == "Custom":
         if sceneSetup.childDayHeader and owner is not None:
-            getattr(owner, propName).add(actor)
+            getattr(owner, propName).append(actor)
         if sceneSetup.childNightHeader and owner.childNightHeader is not None:
-            getattr(owner.childNightHeader, propName).add(actor)
+            getattr(owner.childNightHeader, propName).append(actor)
         if sceneSetup.adultDayHeader and owner.adultDayHeader is not None:
-            getattr(owner.adultDayHeader, propName).add(actor)
+            getattr(owner.adultDayHeader, propName).append(actor)
         if sceneSetup.adultNightHeader and owner.adultNightHeader is not None:
-            getattr(owner.adultNightHeader, propName).add(actor)
+            getattr(owner.adultNightHeader, propName).append(actor)
         for cutsceneHeader in sceneSetup.cutsceneHeaders:
             if cutsceneHeader.headerIndex >= len(owner.cutsceneHeaders) + 4:
                 raise PluginError(
                     actorObjName
                     + " uses a cutscene header index that is outside the range of the current number of cutscene headers."
                 )
-            getattr(owner.cutsceneHeaders[cutsceneHeader.headerIndex - 4], propName).add(actor)
+            getattr(owner.cutsceneHeaders[cutsceneHeader.headerIndex - 4], propName).append(actor)
     else:
         raise PluginError("Unhandled scene setup preset: " + str(sceneSetup.sceneSetupPreset))
 

@@ -48,6 +48,7 @@ from .oot_utility import (
     ootConvertRotation,
     getSceneDirFromLevelName,
     isPathObject,
+    is_hackPL_enabled,
 )
 
 from .oot_level_classes import (
@@ -62,6 +63,9 @@ from .oot_level_classes import (
     OOTBGImage,
     addActor,
     addStartPosition,
+    LightInfoStruct,
+    LightInfoTypeEnum,
+    LightParamsPointStruct,
 )
 
 
@@ -316,7 +320,7 @@ def getConvertedTransform(transformMatrix, sceneObj, obj, handleOrientation):
     if handleOrientation:
         orientation = mathutils.Quaternion((1, 0, 0), math.radians(90.0))
     else:
-        orientation = mathutils.Matrix.Identity(4)
+        orientation = mathutils.Matrix.Identity(4).to_quaternion()
     return getConvertedTransformWithOrientation(transformMatrix, sceneObj, obj, orientation)
 
 
@@ -353,11 +357,18 @@ def readRoomData(
     room: OOTRoom,
     roomHeader: OOTRoomHeaderProperty,
     alternateRoomHeaders: OOTAlternateRoomHeaderProperty,
+    first_header_hackPL_usePointLights: "bool | None" = None,
 ):
     room.roomIndex = roomHeader.roomIndex
     room.roomBehaviour = getCustomProperty(roomHeader, "roomBehaviour")
     room.disableWarpSongs = roomHeader.disableWarpSongs
     room.showInvisibleActors = roomHeader.showInvisibleActors
+    if is_hackPL_enabled():
+        if first_header_hackPL_usePointLights is None:
+            room.hackPL_usePointLights = roomHeader.hackPL_usePointLights
+            first_header_hackPL_usePointLights = roomHeader.hackPL_usePointLights
+        else:
+            room.hackPL_usePointLights = first_header_hackPL_usePointLights
 
     # room heat behavior is active if the idle mode is 0x03
     room.linkIdleMode = getCustomProperty(roomHeader, "linkIdleMode") if not roomHeader.roomIsHot else "0x03"
@@ -399,20 +410,38 @@ def readRoomData(
     if alternateRoomHeaders is not None:
         if not alternateRoomHeaders.childNightHeader.usePreviousHeader:
             room.childNightHeader = room.getAlternateHeaderRoom(room.ownerName)
-            readRoomData(sceneName, room.childNightHeader, alternateRoomHeaders.childNightHeader, None)
+            readRoomData(
+                sceneName,
+                room.childNightHeader,
+                alternateRoomHeaders.childNightHeader,
+                None,
+                first_header_hackPL_usePointLights,
+            )
 
         if not alternateRoomHeaders.adultDayHeader.usePreviousHeader:
             room.adultDayHeader = room.getAlternateHeaderRoom(room.ownerName)
-            readRoomData(sceneName, room.adultDayHeader, alternateRoomHeaders.adultDayHeader, None)
+            readRoomData(
+                sceneName,
+                room.adultDayHeader,
+                alternateRoomHeaders.adultDayHeader,
+                None,
+                first_header_hackPL_usePointLights,
+            )
 
         if not alternateRoomHeaders.adultNightHeader.usePreviousHeader:
             room.adultNightHeader = room.getAlternateHeaderRoom(room.ownerName)
-            readRoomData(sceneName, room.adultNightHeader, alternateRoomHeaders.adultNightHeader, None)
+            readRoomData(
+                sceneName,
+                room.adultNightHeader,
+                alternateRoomHeaders.adultNightHeader,
+                None,
+                first_header_hackPL_usePointLights,
+            )
 
         for i in range(len(alternateRoomHeaders.cutsceneHeaders)):
             cutsceneHeaderProp = alternateRoomHeaders.cutsceneHeaders[i]
             cutsceneHeader = room.getAlternateHeaderRoom(room.ownerName)
-            readRoomData(sceneName, cutsceneHeader, cutsceneHeaderProp, None)
+            readRoomData(sceneName, cutsceneHeader, cutsceneHeaderProp, None, first_header_hackPL_usePointLights)
             room.cutsceneHeaders.append(cutsceneHeader)
 
     if roomHeader.roomShape == "ROOM_SHAPE_TYPE_IMAGE":
@@ -497,7 +526,7 @@ def ootConvertScene(originalSceneObj, transformMatrix, sceneName, DLFormat, conv
         hiddenState = unhideAllAndGetHiddenState(bpy.context.scene)
 
     # Don't remove ignore_render, as we want to reuse this for collision
-    sceneObj, allObjs = ootDuplicateHierarchy(originalSceneObj, None, True, OOTObjectCategorizer())
+    sceneObj, allObjs = ootDuplicateHierarchy(originalSceneObj, None, True, OOTObjectCategorizer(), True)
 
     if bpy.context.scene.exportHiddenGeometry:
         restoreHiddenState(hiddenState)
@@ -513,7 +542,7 @@ def ootConvertScene(originalSceneObj, transformMatrix, sceneName, DLFormat, conv
         readSceneData(scene, sceneObj.fast64.oot.scene, sceneObj.ootSceneHeader, sceneObj.ootAlternateSceneHeaders)
         processedRooms = set()
 
-        for obj in sceneObj.children_recursive:
+        for obj in sorted(sceneObj.children_recursive, key=lambda o: o.original_name):
             translation, rotation, scale, orientedRotation = getConvertedTransform(transformMatrix, sceneObj, obj, True)
 
             if obj.type == "EMPTY" and obj.ootEmptyType == "Room":
@@ -544,6 +573,8 @@ def ootConvertScene(originalSceneObj, transformMatrix, sceneName, DLFormat, conv
                 room.mesh.terminateDLs()
                 room.mesh.removeUnusedEntries()
                 ootProcessEmpties(scene, room, sceneObj, roomObj, transformMatrix)
+
+                room_fill_lightInfoList(room, sceneObj, roomObj, transformMatrix)
             elif obj.type == "EMPTY" and obj.ootEmptyType == "Water Box":
                 # 0x3F = -1 in 6bit value
                 ootProcessWaterBox(sceneObj, obj, transformMatrix, scene, 0x3F)
@@ -852,7 +883,7 @@ def ootProcessEmpties(scene, room, sceneObj, obj, transformMatrix):
         else:
             readCrawlspace(obj, scene, transformMatrix)
 
-    for childObj in obj.children:
+    for childObj in sorted(obj.children, key=lambda o: o.original_name):
         ootProcessEmpties(scene, room, sceneObj, childObj, transformMatrix)
 
 
@@ -872,3 +903,47 @@ def ootProcessWaterBox(sceneObj, obj, transformMatrix, scene, roomIndex):
             obj.empty_display_size,
         )
     )
+
+
+# code is half attenuation at light_radius/4 : clearer in blender if the radius
+# corresponds to the half attenuation mark, not one fourth of it
+# PL_RADIUS_SCALE = 4
+# completely subjective but 3 looks more in-line with in-game
+PL_RADIUS_SCALE = 3
+
+
+def room_fill_lightInfoList(room: OOTRoom, sceneObj, roomObj: bpy.types.Object, transformMatrix):
+    """
+    transformMatrix = scaling only
+    """
+    print("room_fill_lightInfoList")
+    lightObjs = [obj for obj in roomObj.children_recursive if obj.type == "LIGHT"]
+    print([(o.name, o.type) for o in roomObj.children_recursive])
+    print(lightObjs)
+    for lo in sorted(lightObjs, key=lambda o: o.original_name):
+        lo_data = lo.data
+        assert isinstance(lo_data, bpy.types.Light)
+
+        # weird, but consistent with the rest
+        translation, rotation, scale, orientedRotation = getConvertedTransform(transformMatrix, sceneObj, lo, False)
+
+        if lo_data.type == "POINT":
+            assert isinstance(lo_data, bpy.types.PointLight)
+            lip = LightParamsPointStruct(
+                *translation,
+                [round(c * 255) for c in lo_data.color],
+                # shadow_soft_size is named "Radius" in the UI and displays a ring around it
+                round(bpy.context.scene.ootBlenderScale * lo_data.shadow_soft_size * PL_RADIUS_SCALE),
+            )
+            li = LightInfoStruct(
+                (
+                    LightInfoTypeEnum.LIGHT_POINT_GLOW
+                    if lo_data.er_lights_ui_isGlow
+                    else LightInfoTypeEnum.LIGHT_POINT_NOGLOW
+                ),
+                lip,
+            )
+            room.lightInfoList.append(li)
+        else:
+            print("ignored light", lo.name)
+    print(f"{room.lightInfoList=}")
