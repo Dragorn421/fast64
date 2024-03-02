@@ -805,7 +805,7 @@ def process_sm64_objects(obj, area, rootMatrix, transformMatrix, specialsOnly):
     # Hacky solution to handle Z-up to Y-up conversion
     rotation = originalRotation @ mathutils.Quaternion((1, 0, 0), math.radians(90.0))
 
-    if obj.data is None:
+    if obj.type == "EMPTY":
         if obj.sm64_obj_type == "Area Root" and obj.areaIndex != area.index:
             return
         if specialsOnly:
@@ -1090,7 +1090,9 @@ class SM64ObjectPanel(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.gameEditorMode == "SM64" and (context.object is not None and context.object.data is None)
+        return context.scene.gameEditorMode == "SM64" and (
+            context.object is not None and context.object.type == "EMPTY"
+        )
 
     def draw_inline_obj(self, box: bpy.types.UILayout, obj: bpy.types.Object):
         obj_details: InlineGeolayoutObjConfig = inlineGeoLayoutObjects.get(obj.sm64_obj_type)

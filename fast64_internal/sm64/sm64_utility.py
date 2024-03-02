@@ -5,6 +5,7 @@ from .sm64_objects import InlineGeolayoutObjConfig, inlineGeoLayoutObjects, chec
 from .sm64_geolayout_classes import *
 from ..f3d.f3d_writer import FModel, TriangleConverterInfo, saveStaticModel, getInfoDict
 
+
 def starSelectWarning(operator, fileStatus):
     if fileStatus is not None and not fileStatus.starSelectC:
         operator.report({"WARNING"}, "star_select.c not found, skipping star select scrolling.")
@@ -25,9 +26,8 @@ def getMemoryCFilePath(decompDir):
     return os.path.join(decompDir, relPath)
 
 
-
-
 enumSM64EmptyWithGeolayout_TWO = {"Area Root", "Switch"}
+
 
 def sm64_object_uses_geolayout(obj: bpy.types.Object, ignoreAttr: str):
     if ignoreAttr is not None and getattr(obj, ignoreAttr):
@@ -38,9 +38,9 @@ def sm64_object_uses_geolayout(obj: bpy.types.Object, ignoreAttr: str):
 
     if (
         # TODO: ADD SHARED CHILDREN HOW
-        check_obj_is_room(obj) or
-        obj.sm64_obj_type in enumSM64EmptyWithGeolayout_TWO or
-        checkIsSM64InlineGeoLayout(obj.sm64_obj_type)
+        check_obj_is_room(obj)
+        or obj.sm64_obj_type in enumSM64EmptyWithGeolayout_TWO
+        or checkIsSM64InlineGeoLayout(obj.sm64_obj_type)
     ):
         return True
     for child in obj.children:
@@ -52,6 +52,7 @@ def sm64_object_uses_geolayout(obj: bpy.types.Object, ignoreAttr: str):
             return True
     return False
 
+
 def select_geolayout_children(obj: bpy.types.Object, ignoreAttr: str):
     if sm64_object_uses_geolayout(obj, ignoreAttr):
         obj.select_set(True)
@@ -59,12 +60,14 @@ def select_geolayout_children(obj: bpy.types.Object, ignoreAttr: str):
     for child in obj.children:
         select_geolayout_children(child, ignoreAttr)
 
+
 def duplicate_geolayout_candidates(obj: bpy.types.Object, ignoreAttr: str):
     bpy.ops.object.select_all(action="DESELECT")
     select_geolayout_children(obj, ignoreAttr)
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.duplicate()
+
 
 def apply_objects_modifiers(allObjs: Iterable[bpy.types.Object]):
     # first apply modifiers so that any objects that affect each other are taken into consideration
@@ -74,9 +77,11 @@ def apply_objects_modifiers(allObjs: Iterable[bpy.types.Object]):
         for modifier in selectedObj.modifiers:
             attemptModifierApply(modifier)
 
+
 def apply_object_transformations(obj: bpy.types.Object):
     selectSingleObject(obj)
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=True, properties=False)
+
 
 GEO_SHOULD_TRANSLATE = "TRANSLATE"
 GEO_SHOULD_ROTATE = "ROTATE"
@@ -97,20 +102,21 @@ mapInlineGeoLayoutObjectsAppliedTransforms = {
 
 def get_obj_transformations(obj: bpy.types.Object):
     if isinstance(obj.data, bpy.types.Mesh):
-        if obj.get("instanced_mesh_name") is not None and obj.data.users > 1: # check > 1 as an extra sanity check
+        if obj.get("instanced_mesh_name") is not None and obj.data.users > 1:  # check > 1 as an extra sanity check
             # technically these should be "can translate/rotate/scale", logic in process_geolayout
             # decides how it should be transformed most efficiently
             return {GEO_SHOULD_TRANSLATE, GEO_SHOULD_ROTATE, GEO_SHOULD_SCALE}
         if obj.geo_cmd_static == "Optimal" and not obj.use_render_range:
             return GEO_NO_TRANSFORMS
         # elif obj.geo_cmd_static == "DisplayListWithOffset":
-            # return {GEO_SHOULD_TRANSLATE}
+        # return {GEO_SHOULD_TRANSLATE}
         # elif obj.geo_cmd_static == "Billboard":
-            # return {GEO_SHOULD_TRANSLATE}
+        # return {GEO_SHOULD_TRANSLATE}
         return {GEO_SHOULD_TRANSLATE}
     if checkIsSM64InlineGeoLayout(obj.sm64_obj_type):
         return mapInlineGeoLayoutObjectsAppliedTransforms[obj.sm64_obj_type]
     return GEO_NO_TRANSFORMS
+
 
 def return_obj_or_get_children(obj: bpy.types.Object):
     next_children = []
@@ -126,22 +132,26 @@ inline_geo_objects_with_transform = {
     "Geo Scale",
 }
 inline_geo_objects_with_no_transform = {"Geo ASM", "Geo Branch", "Geo Displaylist", "Custom Geo Command"}
-inline_geo_object_types = (inline_geo_objects_with_transform | inline_geo_objects_with_no_transform)
-class GeoObject():
+inline_geo_object_types = inline_geo_objects_with_transform | inline_geo_objects_with_no_transform
+
+
+class GeoObject:
     ignore = False
     children: list["GeoObject"] = []
     parent: "GeoObject" = None
-    has_rotation = False # gets set in process_geolayout
-    has_translation = False # gets set in process_geolayout
-    has_scaling = False # gets set in process_geolayout
+    has_rotation = False  # gets set in process_geolayout
+    has_translation = False  # gets set in process_geolayout
+    has_scaling = False  # gets set in process_geolayout
 
     def __init__(self, obj: bpy.types.Object, index: int, is_root: bool = False):
-        self.parent = self # default to self
+        self.parent = self  # default to self
         self.obj = obj
-        self.index = index # TODO: if unused, remove this and enumerations!!!!!
+        self.index = index  # TODO: if unused, remove this and enumerations!!!!!
 
         if not obj.ignore_render:
-            children = self.create_geo_children(sorted(obj.children, key=lambda childObj: childObj.original_name.lower()))
+            children = self.create_geo_children(
+                sorted(obj.children, key=lambda childObj: childObj.original_name.lower())
+            )
             if check_obj_is_room(obj):
                 room_data = obj.fast64.sm64.room
                 pre_render_children, post_render_children = room_data.get_room_objects()
@@ -170,11 +180,13 @@ class GeoObject():
         self.should_render_with_children = sm64_obj_type in inline_geo_objects_with_no_transform
         self.is_inline_geo = sm64_obj_type in inline_geo_object_types
         self.is_room = check_obj_is_room(obj)
-        
+
         self.is_area = obj.sm64_obj_type == "Area Root"
         self.is_area_with_rooms = self.is_area and obj.enableRoomSwitch
 
-        self.is_geo = is_root or self.is_mesh or self.is_switch_option or self.is_inline_geo or self.is_switch or self.is_room
+        self.is_geo = (
+            is_root or self.is_mesh or self.is_switch_option or self.is_inline_geo or self.is_switch or self.is_room
+        )
         # children already have set the above properties by this point
         self.has_geo_children = self.check_has_child_with_geo()
         if not self.is_geo and not self.has_geo_children:
@@ -191,7 +203,7 @@ class GeoObject():
 
     def get_recursive_children(self):
         for child in self.yield_recursive_children():
-            if child is self: # skip yourself
+            if child is self:  # skip yourself
                 continue
             yield child
 
@@ -252,16 +264,13 @@ class GeoObject():
                 location=GEO_SHOULD_TRANSLATE not in self.transformations,
                 rotation=GEO_SHOULD_ROTATE not in self.transformations,
                 scale=GEO_SHOULD_SCALE not in self.transformations,
-                properties=False
+                properties=False,
             )
 
             child.realize_transformations()
 
 
-def duplicate_and_create_initial_geolayout_hierarchy(
-    obj: bpy.types.Object,
-    ignoreAttr: str
-):
+def duplicate_and_create_initial_geolayout_hierarchy(obj: bpy.types.Object, ignoreAttr: str):
     # TODO: try and cleanup on failure
     # TODO: also duplicate room pseudo children?
     duplicate_geolayout_candidates(obj, ignoreAttr)
@@ -278,7 +287,7 @@ def duplicate_and_create_initial_geolayout_hierarchy(
     apply_objects_modifiers(all_objs)
 
     geo_root = GeoObject(duped_root, 0, is_root=True)
-    geo_root.flatten() # template structure
+    geo_root.flatten()  # template structure
 
     selectSingleObject(geo_root.obj)
     bpy.ops.object.parent_clear(type="CLEAR_KEEP_TRANSFORM")
@@ -290,13 +299,15 @@ def duplicate_and_create_initial_geolayout_hierarchy(
 
     return geo_root
 
+
 def check_has_rotation(rotate: mathutils.Quaternion):
     eulerRot = rotate.to_euler(geoNodeRotateOrder)
-    return not(
+    return not (
         convertEulerFloatToShort(eulerRot[0]) == 0
         and convertEulerFloatToShort(eulerRot[1]) == 0
         and convertEulerFloatToShort(eulerRot[2]) == 0
     )
+
 
 def check_has_translation(translate: mathutils.Vector):
     return not (
@@ -313,16 +324,15 @@ def check_has_scaling(scale: mathutils.Vector):
         and int(round(scale[2] * 0x10000)) == 0x10000
     )
 
+
 def add_transform_node_to_parent(parent_transform_node: TransformNode, new_node):
     transformNode = TransformNode(new_node)
     transformNode.parent = parent_transform_node
     parent_transform_node.children.append(transformNode)
     return transformNode
 
-def process_pre_inline_geo(
-    obj: bpy.types.Object,
-    parent_transform_node: TransformNode
-):
+
+def process_pre_inline_geo(obj: bpy.types.Object, parent_transform_node: TransformNode):
     inline_geo_conf: InlineGeolayoutObjConfig = inlineGeoLayoutObjects.get(obj.sm64_obj_type)
     if inline_geo_conf.name == "Geo ASM":
         node = FunctionNode(obj.fast64.sm64.geo_asm.func, obj.fast64.sm64.geo_asm.param)
@@ -335,14 +345,17 @@ def process_pre_inline_geo(
     node.hasDL = False
     parent_transform_node.children.append(node)
 
+
 class ProcessGeolayoutContext:
     """Data related to processing a geolayout thats consistent and doesn't typically change"""
-    def __init__(self,
-        fModel: FModel, 
+
+    def __init__(
+        self,
+        fModel: FModel,
         geolayout: Geolayout,
         geolayout_graph: GeolayoutGraph,
         convert_textures: bool,
-        base_transform_matrix: mathutils.Matrix
+        base_transform_matrix: mathutils.Matrix,
     ) -> None:
         self.fModel: FModel = fModel
         self.geolayout: Geolayout = geolayout
@@ -350,32 +363,30 @@ class ProcessGeolayoutContext:
         self.convert_textures: bool = convert_textures
         self.base_transform_matrix: mathutils.Matrix = base_transform_matrix
         pass
-    
+
     def clone_with_new_geolayout(self, new_geolayout):
-        return self.__class__(self.fModel, new_geolayout, self.geolayout_graph, self.convert_textures, self.base_transform_matrix)
+        return self.__class__(
+            self.fModel, new_geolayout, self.geolayout_graph, self.convert_textures, self.base_transform_matrix
+        )
+
 
 def process_geo_switch(
     process_context: ProcessGeolayoutContext,
     geo_obj: GeoObject,
     parent_transform_node: TransformNode,
     switch_func: str,
-    switch_param: str
+    switch_param: str,
 ):
     pre_switch_parent_node = parent_transform_node
     parent_transform_node = add_transform_node_to_parent(
-        parent_transform_node,
-        SwitchNode(switch_func, switch_param, geo_obj.obj.original_name)
+        parent_transform_node, SwitchNode(switch_func, switch_param, geo_obj.obj.original_name)
     )
 
     print(geo_obj.obj.original_name)
     for i, child in enumerate(geo_obj.children):
         print(i, child.obj.original_name)
         if i == 0:
-            process_geolayout(
-                process_context,
-                child,
-                pre_switch_parent_node
-            )
+            process_geolayout(process_context, child, pre_switch_parent_node)
             continue
 
         option_geolayout = process_context.geolayout_graph.addGeolayout(
@@ -390,6 +401,7 @@ def process_geo_switch(
             child,
             start_node,
         )
+
 
 def process_inline_geo_node(
     obj: bpy.types.Object,
@@ -412,11 +424,9 @@ def process_inline_geo_node(
     else:
         raise PluginError(f"Ooops! Didnt implement inline geo exporting for {inline_geo_conf.name}")
 
+
 def get_optimal_node(
-    geo_obj: GeoObject,
-    translation: mathutils.Vector,
-    rotation: mathutils.Quaternion,
-    draw_layer: int
+    geo_obj: GeoObject, translation: mathutils.Vector, rotation: mathutils.Quaternion, draw_layer: int
 ):
     if geo_obj.has_rotation and geo_obj.has_translation:
         return TranslateRotateNode(draw_layer, 0, False, translation, rotation)
@@ -427,12 +437,13 @@ def get_optimal_node(
     else:
         return DisplayListNode(draw_layer)
 
+
 def get_optimal_instanced_node(
     geo_obj: GeoObject,
     translation: mathutils.Vector,
     rotation: mathutils.Quaternion,
     scale: mathutils.Vector,
-    parent_transform_node: TransformNode
+    parent_transform_node: TransformNode,
 ):
     draw_layer = int(geo_obj.obj.draw_layer_static)
     node = get_optimal_node(geo_obj, translation, rotation, draw_layer)
@@ -443,14 +454,15 @@ def get_optimal_instanced_node(
         parent_transform_node = add_transform_node_to_parent(parent_transform_node, node)
     return ScaleNode(draw_layer, scale[0], True), parent_transform_node
 
+
 def process_geolayout(
     process_context: ProcessGeolayoutContext,
     geo_obj: GeoObject,
     parent_transform_node: TransformNode,
 ):
     obj: bpy.types.Object = geo_obj.obj
-    
-    if geo_obj.ignore: # ignore hierarchy and bail
+
+    if geo_obj.ignore:  # ignore hierarchy and bail
         return
 
     if geo_obj.should_render_with_children:
@@ -458,7 +470,7 @@ def process_geolayout(
         for child in geo_obj.children:
             process_geolayout(process_context, child, parent_transform_node)
         return
-    
+
     if geo_obj.is_switch or geo_obj.is_area_with_rooms:
         if geo_obj.is_switch:
             switch_func = obj.switchFunc
@@ -466,13 +478,7 @@ def process_geolayout(
         else:
             switch_func = "geo_switch_area"
             switch_param = len(geo_obj.children)
-        process_geo_switch(
-            process_context,
-            geo_obj,
-            parent_transform_node,
-            switch_func,
-            switch_param
-        )
+        process_geo_switch(process_context, geo_obj, parent_transform_node, switch_func, switch_param)
         return
 
     if geo_obj.should_transform_children:
@@ -484,22 +490,17 @@ def process_geolayout(
         translation = mathutils.Vector((0, 0, 0))
         rotation = mathutils.Quaternion()
         scale = mathutils.Vector((1, 1, 1))
-    
+
     node: BaseDisplayListNode = None
     if geo_obj.is_inline_geo:
-        node = process_inline_geo_node(
-            geo_obj.obj, translation, rotation, scale
-        )
+        node = process_inline_geo_node(geo_obj.obj, translation, rotation, scale)
     elif obj.geo_cmd_static == "Optimal":
         # Allow geo transformations with instanced nodes
         if geo_obj.has_rotation or geo_obj.has_scaling or geo_obj.has_translation:
             if geo_obj.is_instanced:
                 node, parent_transform_node = get_optimal_instanced_node(
-                    geo_obj,
-                    translation,
-                    rotation,
-                    scale,
-                    parent_transform_node)
+                    geo_obj, translation, rotation, scale, parent_transform_node
+                )
             else:
                 #! TODO: better error message: explain its a bug in fast64
                 raise Exception(f"Optimal node ({obj.original_name}) has good error message")
@@ -511,7 +512,8 @@ def process_geolayout(
             # should be "AnimatedPartNode". its not worth the bloat atm
             if geo_obj.is_instanced:
                 raise Exception(
-                    f"Unimplemented Error: DisplayListWithOffset node ({obj.original_name}) cannot be instanced (detected rotation and/or scale), please report to Fast64.")
+                    f"Unimplemented Error: DisplayListWithOffset node ({obj.original_name}) cannot be instanced (detected rotation and/or scale), please report to Fast64."
+                )
             #! TODO: better error message: explain its a bug in fast64
             raise Exception(f"DisplayListWithOffset node ({obj.original_name}) has good error message")
         node = DisplayListWithOffsetNode(int(obj.draw_layer_static), True, translation)
@@ -521,13 +523,16 @@ def process_geolayout(
                 # order here MUST be billboard with translation -> rotation -> scale -> displaylist
                 node = DisplayListNode(int(obj.draw_layer_static))
                 parent_transform_node = add_transform_node_to_parent(
-                    parent_transform_node, BillboardNode(int(obj.draw_layer_static), False, translation))
+                    parent_transform_node, BillboardNode(int(obj.draw_layer_static), False, translation)
+                )
                 if geo_obj.has_rotation:
                     parent_transform_node = add_transform_node_to_parent(
-                        parent_transform_node, RotateNode(int(obj.draw_layer_static), False, rotation))
+                        parent_transform_node, RotateNode(int(obj.draw_layer_static), False, rotation)
+                    )
                 if geo_obj.has_scaling:
                     parent_transform_node = add_transform_node_to_parent(
-                        parent_transform_node, ScaleNode(int(obj.draw_layer_static), scale[0], False))
+                        parent_transform_node, ScaleNode(int(obj.draw_layer_static), scale[0], False)
+                    )
             else:
                 #! TODO: Better error message: explain its a bug in fast64
                 raise Exception(f"Billboard node ({obj.original_name}) has good error message")
@@ -536,7 +541,7 @@ def process_geolayout(
 
     if obj.data is not None and (obj.use_render_range or obj.add_shadow or obj.add_func):
         # the ordering here is weird.
-        # the node created above is determining transformations, and since its created first, 
+        # the node created above is determining transformations, and since its created first,
         # these object properties create a new DL node so that the parent one is the old dl node (wtf)
         # so this may be because TransformNode.to_c replies on DisplayListNode with hasDL == False to return null
         # from DisplayListNode.to_c, which skips writing it
@@ -549,7 +554,7 @@ def process_geolayout(
         #! BECAUSE THIS GETS ASSIGNED THE MESH BIIIIIIIIITCH WTF
         node = DisplayListNode(int(obj.draw_layer_static))
         transform_node = TransformNode(node)
-        
+
         if obj.use_render_range:
             # needs to be above the DLs in order to not render
             parent_transform_node = add_transform_node_to_parent(
@@ -567,7 +572,7 @@ def process_geolayout(
             add_transform_node_to_parent(parent_transform_node, FunctionNode(geo_asm.func, geo_asm.param))
     else:
         transform_node = TransformNode(node)
-    
+
     if obj.data is None:
         fMeshes = {}
     elif geo_obj.is_instanced:
@@ -576,7 +581,7 @@ def process_geolayout(
             raise ValueError(
                 "The source of an instanced mesh could not be found. Please contact a Fast64 maintainer for support."
             )
-        
+
         src_meshes = temp_obj.get("src_meshes", [])
         if len(src_meshes):
             fMeshes = {}
@@ -605,7 +610,7 @@ def process_geolayout(
                 process_context.fModel.name,
                 process_context.convert_textures,
                 False,
-                "sm64"
+                "sm64",
             )
             if fMeshes:
                 temp_obj["src_meshes"] = [
@@ -616,7 +621,9 @@ def process_geolayout(
                 # TODO: Display warning to the user that there is an object that doesn't have polygons
                 print("Object", obj.original_name, "does not have any polygons.")
     else:
-        triConverterInfo = TriangleConverterInfo(obj, None, process_context.fModel.f3d, process_context.base_transform_matrix, getInfoDict(obj))
+        triConverterInfo = TriangleConverterInfo(
+            obj, None, process_context.fModel.f3d, process_context.base_transform_matrix, getInfoDict(obj)
+        )
         fMeshes = saveStaticModel(
             triConverterInfo,
             process_context.fModel,
@@ -625,9 +632,9 @@ def process_geolayout(
             process_context.fModel.name,
             process_context.convert_textures,
             False,
-            "sm64"
+            "sm64",
         )
-    
+
     if fMeshes is None or len(fMeshes) == 0:
         #! explain in comment
         #! i think its because i control that directly
@@ -655,9 +662,7 @@ def process_geolayout(
                 new_dl_transform_node = TransformNode(dl_node)
                 transform_node.children.append(new_dl_transform_node)
                 new_dl_transform_node.parent = transform_node
-    
+
     parent_transform_node.children.append(transform_node)
     for child in geo_obj.children:
         process_geolayout(process_context, child, parent_transform_node)
-    
-    
