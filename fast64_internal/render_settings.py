@@ -11,7 +11,7 @@ def on_update_sm64_render_settings(self, context: bpy.types.Context):
         renderSettings.fogPreviewColor = tuple(c for c in area.area_fog_color)
         renderSettings.fogPreviewPosition = tuple(round(p) for p in area.area_fog_position)
         renderSettings.clippingPlanes = tuple(float(p) for p in area.clipPlanes)
-    force_shader_recomp_if_auto_update(renderSettings)
+    force_shader_update_if_auto_update(renderSettings)
 
 
 def on_update_oot_render_settings(self, context: bpy.types.Context):
@@ -91,23 +91,17 @@ def on_update_oot_render_settings(self, context: bpy.types.Context):
             10.0,
             la.z_far + float(lb.z_far - la.z_far) * fade,
         )
-    force_shader_recomp_if_auto_update(renderSettings)
+    force_shader_update_if_auto_update(renderSettings)
 
 
-isRecursing = False
-
-
-def force_shader_recomp_if_auto_update(renderSettings: "Fast64RenderSettings_Properties"):
-    global isRecursing
-    if not isRecursing and renderSettings.enableAutoUpdatePreview:
-        try:
-            isRecursing = True
-            # Force shader recompilation since setting the renderSettings props from python unfortunately doesn't
-            # cause the shader to pick up the values set
-            renderSettings.enableAutoUpdatePreview = False
-            renderSettings.enableAutoUpdatePreview = True
-        finally:
-            isRecursing = False
+def force_shader_update_if_auto_update(renderSettings: "Fast64RenderSettings_Properties"):
+    if renderSettings.enableAutoUpdatePreview:
+        # Force update and redraw since setting the renderSettings props from python unfortunately doesn't
+        # cause the shader to pick up the values set
+        bpy.context.scene.update_tag()
+        for area in bpy.context.screen.areas:
+            if area.type == "VIEW_3D":
+                area.tag_redraw()
 
 
 def update_scene_props_from_rs_enableFogPreview(
