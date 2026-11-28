@@ -104,3 +104,9 @@ Also see the extensive documentation in the https://github.com/CGCookie/blender-
 The "Update directly to main" button uses `bl_info["version"]` as the current version, and versions parsed from git tags as other versions. This means that to create a new version, the `bl_info` version should be bumped and a corresponding tag should be created (for example `"version": (1, 0, 2),` and a `v1.0.2` tag). This tag will then be available to update to, if it denotes a version that is more recent than the current version.
 
 The "Install main / old version" button will install the latest revision from the `main` branch.
+
+#### AI usage in PRs
+
+Some AI usage is fine. We expect PRs to have been reviewed and understood by their human author.
+
+If you used AI for your PR, please explain to what extent and how.
